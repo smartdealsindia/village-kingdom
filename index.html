@@ -1,0 +1,474 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Village Kingdom</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#101a28;color:#fff;font-family:Arial,sans-serif}
+header{padding:12px;background:linear-gradient(120deg,#173e38,#182c49);border-bottom:2px solid #5dbf8b}
+h1{font-size:23px;margin:0 0 9px;color:#ffe99a}
+.resources{display:flex;gap:7px;flex-wrap:wrap}
+.res{flex:1;min-width:85px;padding:8px;background:#102b35;border:1px solid #456f72;border-radius:8px;font-size:12px}
+.res b{font-size:16px;display:block;margin-top:4px}
+main{max-width:950px;margin:auto;padding:8px}
+#scene{border:2px solid #588a71;border-radius:12px;overflow:hidden;background:#559c54;position:relative}
+canvas{display:block;width:100%;height:auto;touch-action:manipulation}
+#toast{position:absolute;top:8px;left:50%;transform:translateX(-50%);max-width:92%;padding:8px 12px;background:#17251eec;border:1px solid #b4e9a2;border-radius:9px;font-size:12px;text-align:center;pointer-events:none}
+.panel{background:#18283b;border:1px solid #35536b;border-radius:10px;margin-top:9px;padding:10px}
+h2{font-size:15px;color:#ffe69a;margin:0 0 9px}
+.grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px}
+button{color:white;background:#294b57;border:1px solid #608c91;border-radius:8px;padding:10px 5px;font-size:12px;font-weight:bold;cursor:pointer;touch-action:manipulation}
+button:active{transform:scale(.97)}
+button.selected{border:2px solid #ffeb87;background:#536344}
+button:disabled{opacity:.45}
+button span{display:block;font-size:23px;margin-bottom:4px}
+button small{display:block;font-size:10px;color:#d3e5da;margin-top:4px}
+.actions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}
+.primary{background:#a25e29;border-color:#f2c47b}
+.attack{background:#973e3c;border-color:#e99c81}
+.info{font-size:12px;color:#bfd3d6;line-height:1.6}
+@media(max-width:500px){.grid{grid-template-columns:repeat(3,minmax(0,1fr))}button{padding:9px 3px}.res{min-width:70px}}
+</style>
+</head>
+<body>
+<header>
+<h1>🏰 VILLAGE KINGDOM</h1>
+<div class="resources">
+ <div class="res">🪙 Gold<b id="gold">500</b></div>
+ <div class="res">🧪 Elixir<b id="elixir">400</b></div>
+ <div class="res">💎 Gems<b id="gems">20</b></div>
+ <div class="res">⚔️ Army<b id="army">0</b></div>
+</div>
+</header>
+
+<main>
+<div id="scene">
+<canvas id="game" width="900" height="600"></canvas>
+<div id="toast">Build your village! Select a building below, then tap the grass.</div>
+</div>
+
+<div class="panel">
+<h2>🏗️ BUILD YOUR VILLAGE</h2>
+<div class="grid" id="buildings"></div>
+</div>
+
+<div class="panel">
+<h2>⚒️ SELECTED BUILDING</h2>
+<div class="actions">
+<button id="upgrade">⬆️ Upgrade</button>
+<button id="collect">💰 Collect</button>
+<button id="cancel">✖ Cancel Build</button>
+</div>
+<div class="info" id="buildingInfo">Select a building on the village to see its details.</div>
+</div>
+
+<div class="panel">
+<h2>🛡️ TRAIN YOUR ARMY</h2>
+<div class="grid" id="troops"></div>
+<div class="actions" style="margin-top:8px">
+<button id="train">⚔️ Train Selected</button>
+<button id="raid" class="attack">🔥 Attack Enemy</button>
+<button id="save">💾 Save Game</button>
+</div>
+<div class="info" id="armyInfo">Train troops and attack the enemy camp to earn resources.</div>
+</div>
+
+<div class="panel">
+<h2>📜 HOW TO PLAY</h2>
+<div class="info">
+1. Build a Town Hall, Gold Mine, Elixir Pump and Army Camp.<br>
+2. Select a building in your village to upgrade or collect resources.<br>
+3. Train Barbarians, Archers or Giants using elixir.<br>
+4. Tap Attack Enemy, then tap the battlefield to deploy your troops.<br>
+5. Defeat the enemy defenses to win gold and elixir. Your village saves automatically.
+</div>
+</div>
+</main>
+
+<script>
+"use strict";
+(()=>{
+const $=id=>document.getElementById(id);
+const canvas=$("game"),ctx=canvas.getContext("2d");
+const W=900,H=600,KEY="villageKingdomSaveV1";
+
+const defs={
+ town:{name:"Town Hall",emoji:"🏰",cost:0,res:"gold",hp:1000,w:76,h:67},
+ gold:{name:"Gold Mine",emoji:"⛏️",cost:100,res:"gold",hp:350,w:52,h:47},
+ elixir:{name:"Elixir Pump",emoji:"🧪",cost:120,res:"gold",hp:350,w:52,h:47},
+ camp:{name:"Army Camp",emoji:"⛺",cost:150,res:"gold",hp:450,w:62,h:50},
+ cannon:{name:"Cannon",emoji:"💣",cost:180,res:"gold",hp:500,w:48,h:46},
+ wall:{name:"Wall",emoji:"🧱",cost:35,res:"gold",hp:240,w:34,h:30},
+ hut:{name:"Builder Hut",emoji:"🛖",cost:80,res:"gold",hp:300,w:45,h:43}
+};
+
+const troopDefs={
+ barbarian:{name:"Barbarian",emoji:"⚔️",cost:35,hp:110,damage:20,speed:49},
+ archer:{name:"Archer",emoji:"🏹",cost:45,hp:70,damage:17,speed:54,range:105},
+ giant:{name:"Giant",emoji:"💪",cost:90,hp:350,damage:38,speed:27},
+ goblin:{name:"Goblin",emoji:"👺",cost:55,hp:65,damage:13,speed:76,loot:2}
+};
+
+let gold=500,elixir=400,gems=20,selectedType="gold",selected=null;
+let buildings=[],troops=[],army=[],raidEnemies=[],projectiles=[];
+let raidMode=false,raidActive=false,raidTime=0,raidResult=false;
+let nextId=1,last=0,toastTimer=0;
+let lastAuto=0;
+
+function msg(s){$("toast").textContent=s;toastTimer=3}
+function dist(a,b){return Math.hypot(a.x-b.x,a.y-b.y)}
+function costOf(b){return Math.floor(defs[b.type].cost*Math.pow(1.65,b.level-1))}
+function troopCount(){return troops.length+army.length}
+function save(){
+ try{
+  localStorage.setItem(KEY,JSON.stringify({
+   gold,elixir,gems,buildings, troops:troops.map(t=>t.type)
+  }));
+ }catch(e){}
+}
+function load(){
+ try{
+  const d=JSON.parse(localStorage.getItem(KEY)||"null");
+  if(!d)return false;
+  gold=Math.max(0,Number(d.gold)||0);
+  elixir=Math.max(0,Number(d.elixir)||0);
+  gems=Math.max(0,Number(d.gems)||0);
+  if(Array.isArray(d.buildings)){
+   buildings=d.buildings.filter(b=>defs[b.type]&&Number.isFinite(b.x)&&Number.isFinite(b.y));
+   buildings.forEach(b=>{b.id=nextId++;b.level=Math.max(1,b.level||1);b.stored=b.stored||0});
+  }
+  if(Array.isArray(d.troops))troops=d.troops.filter(t=>troopDefs[t]).map(type=>({id:nextId++,type}));
+  return true;
+ }catch(e){return false}
+}
+
+function buildMenu(){
+ const el=$("buildings");el.innerHTML="";
+ Object.keys(defs).forEach(type=>{
+  const d=defs[type],b=document.createElement("button");
+  b.className=selectedType===type?"selected":"";
+  b.innerHTML="<span>"+d.emoji+"</span>"+d.name+
+   "<small>"+(d.cost===0?"Starting building":"🪙 "+d.cost)+"</small>";
+  b.onclick=()=>{selectedType=type;selected=null;raidMode=false;buildMenu();msg("Selected "+d.name+". Tap an empty place on your village.");updateInfo()};
+  el.appendChild(b);
+ });
+}
+function troopMenu(){
+ const el=$("troops");el.innerHTML="";
+ Object.keys(troopDefs).forEach(type=>{
+  const d=troopDefs[type],b=document.createElement("button");
+  b.className=selectedType==="troop:"+type?"selected":"";
+  b.innerHTML="<span>"+d.emoji+"</span>"+d.name+
+   "<small>🧪 "+d.cost+" · Owned "+troops.filter(t=>t.type===type).length+"</small>";
+  b.onclick=()=>{selectedType="troop:"+type;buildMenu();troopMenu();msg("Selected "+d.name+". Press Train Selected.");};
+  el.appendChild(b);
+ });
+}
+function updateUI(){
+ $("gold").textContent=Math.floor(gold);
+ $("elixir").textContent=Math.floor(elixir);
+ $("gems").textContent=gems;
+ $("army").textContent=troops.length+army.length;
+}
+function updateInfo(){
+ if(!selected){$("buildingInfo").textContent="Select a building on the village to see its details.";return}
+ const d=defs[selected.type];
+ $("buildingInfo").textContent=d.name+" · Level "+selected.level+" · HP "+d.hp+
+  " · Upgrade cost: "+Math.floor(d.cost*Math.pow(1.65,selected.level))+" gold.";
+}
+function occupied(x,y,def){
+ return buildings.some(b=>Math.abs(b.x-x)<(defs[b.type].w+def.w)/2+7&&Math.abs(b.y-y)<(defs[b.type].h+def.h)/2+7);
+}
+function placeBuilding(x,y){
+ if(raidActive){msg("You cannot build during an attack.");return}
+ const type=selectedType;
+ if(!defs[type])return;
+ const d=defs[type];
+ if(type==="town"&&buildings.some(b=>b.type==="town")){msg("You already have a Town Hall.");return}
+ if(x<45||x>855||y<55||y>555){msg("Build inside your village boundary.");return}
+ if(occupied(x,y,d)){msg("That space is occupied. Choose another spot.");return}
+ if(gold<d.cost){msg("Not enough gold!");return}
+ gold-=d.cost;
+ const b={id:nextId++,type,x,y,level:1,stored:0,hp:d.hp};
+ buildings.push(b);selected=b;
+ msg(d.name+" built successfully!");
+ updateUI();updateInfo();save();
+}
+function selectAt(x,y){
+ for(let i=buildings.length-1;i>=0;i--){
+  const b=buildings[i],d=defs[b.type];
+  if(Math.abs(x-b.x)<d.w/2+8&&Math.abs(y-b.y)<d.h/2+8){
+   selected=b;selectedType=b.type;buildMenu();updateInfo();
+   msg(d.name+" selected.");return true;
+  }
+ }
+ return false;
+}
+
+canvas.addEventListener("pointerdown",e=>{
+ e.preventDefault();
+ const r=canvas.getBoundingClientRect();
+ const x=(e.clientX-r.left)*W/r.width,y=(e.clientY-r.top)*H/r.height;
+ if(raidActive){
+  if(raidMode&&army.length){deployTroop(x,y);return}
+  return;
+ }
+ if(selectAt(x,y))return;
+ if(raidResult){msg("Attack finished. Start another raid when ready.");return}
+ placeBuilding(x,y);
+});
+
+$("upgrade").onclick=()=>{
+ if(!selected){msg("Tap one of your buildings first.");return}
+ if(selected.type==="town"&&selected.level>=10){msg("Town Hall maximum level reached.");return}
+ const price=Math.floor(defs[selected.type].cost*Math.pow(1.65,selected.level));
+ if(gold<price){msg("Upgrade needs "+price+" gold.");return}
+ gold-=price;selected.level++;
+ selected.hp=Math.floor(defs[selected.type].hp*(1+selected.level*.25));
+ msg(selected.type+" upgraded to level "+selected.level+"!");
+ updateUI();updateInfo();save();
+};
+$("collect").onclick=()=>{
+ if(!selected){msg("Select a building first.");return}
+ if(selected.type!=="gold"&&selected.type!=="elixir"){msg("This building has no stored resources.");return}
+ if(selected.stored<=0){msg("Nothing to collect yet. Wait for production.");return}
+ if(selected.type==="gold")gold+=selected.stored;
+ else elixir+=selected.stored;
+ msg("Collected "+selected.stored+" "+(selected.type==="gold"?"gold":"elixir")+"!");
+ selected.stored=0;updateUI();save();
+};
+$("cancel").onclick=()=>{selected=null;raidMode=false;updateInfo();msg("Selection cleared.")};
+
+function train(){
+ if(!selectedType.startsWith("troop:")){msg("Select a troop first.");return}
+ const type=selectedType.split(":")[1],d=troopDefs[type];
+ if(elixir<d.cost){msg("Not enough elixir to train "+d.name+".");return}
+ if(troopCount()>=40){msg("Army full! Attack with your current army first.");return}
+ elixir-=d.cost;troops.push({id:nextId++,type});
+ msg(d.name+" trained and ready!");
+ troopMenu();updateUI();save();
+}
+$("train").onclick=train;
+
+function startRaid(){
+ if(raidActive){msg("Your attack is already underway.");return}
+ if(troops.length===0){msg("Train at least one troop before attacking.");return}
+ raidActive=true;raidMode=true;raidResult=false;raidTime=0;
+ army=troops.map(t=>{
+  const d=troopDefs[t.type];
+  return {id:nextId++,type:t.type,hp:d.hp,maxHp:d.hp,damage:d.damage,
+   speed:d.speed,range:d.range||35,x:85+Math.random()*70,y:75+Math.random()*160,
+   target:null,attack:0,deployed:false};
+ });
+ troops=[];raidEnemies=[];
+ for(let i=0;i<9+Math.min(10,buildings.length);i++){
+  const x=570+Math.random()*260,y=80+Math.random()*400;
+  raidEnemies.push({x,y,hp:100+Math.random()*100,maxHp:180,attack:0});
+ }
+ msg("Enemy base! Tap the battlefield to deploy troops. Remaining troops: "+army.length);
+ $("raid").textContent="🪖 DEPLOY TROOPS";
+ updateUI();
+}
+$("raid").onclick=()=>{
+ if(!raidActive)startRaid();
+ else if(army.length){raidMode=true;msg("Tap the battlefield to deploy troops.")}
+};
+
+function deployTroop(x,y){
+ if(!army.length){raidMode=false;msg("All troops deployed! Watch the battle.");return}
+ const t=army.shift();t.x=x;t.y=y;t.deployed=true;t.target=null;
+ army.push(t);
+ // Mark the troop as deployed; all troops in army participate after placement.
+ t.placed=true;
+ raidMode=false;
+ msg(t.type+" deployed!");
+ if(army.length)raidMode=true;
+ else msg("All troops deployed! Your army is attacking.");
+ updateUI();
+}
+
+function finishRaid(won){
+ raidActive=false;raidMode=false;raidResult=true;
+ if(won){
+  const reward=150+buildings.length*12;
+  gold+=reward;elixir+=100;
+  msg("VICTORY! You earned "+reward+" gold and 100 elixir.");
+ }else{
+  msg("Attack ended. Train more troops and try again.");
+ }
+ army=[];raidEnemies=[];projectiles=[];
+ updateUI();save();
+}
+
+function update(dt){
+ if(!raidActive){
+  if(performance.now()-lastAuto>4000){
+   lastAuto=performance.now();
+   for(const b of buildings){
+    if(b.type==="gold")b.stored=Math.min(999,b.stored+Math.max(1,b.level));
+    if(b.type==="elixir")b.stored=Math.min(999,b.stored+Math.max(1,b.level));
+   }
+   save();
+  }
+  return;
+ }
+ raidTime+=dt;
+
+ // Enemy structures fire at nearby troops.
+ for(const b of buildings){
+  if(b.type!=="cannon")continue;
+  b.cooldown=(b.cooldown||0)-dt;
+  if(b.cooldown<=0){
+   const t=army.find(a=>a.placed&&a.hp>0&&dist(a,b)<190);
+   if(t){t.hp-=25;b.cooldown=1.1}
+  }
+ }
+
+ for(const t of army){
+  if(!t.placed||t.hp<=0)continue;
+  t.attack-=dt;
+  if(!t.target||t.target.hp<=0){
+   t.target=raidEnemies.find(e=>e.hp>0);
+  }
+  if(!t.target)continue;
+  const d=dist(t,t.target);
+  if(d>t.range){
+   const dx=t.target.x-t.x,dy=t.target.y-t.y;
+   t.x+=dx/(d||1)*t.speed*dt;
+   t.y+=dy/(d||1)*t.speed*dt;
+  }else if(t.attack<=0){
+   t.target.hp-=t.damage;t.attack=t.type==="giant"?1.1:.65;
+  }
+ }
+ for(const e of raidEnemies){
+  if(e.hp<=0)continue;
+  e.attack-=dt;
+  const target=army.find(t=>t.placed&&t.hp>0);
+  if(target&&dist(e,target)<110&&e.attack<=0){target.hp-=12;e.attack=1}
+ }
+ army=army.filter(t=>t.hp>0);
+ raidEnemies=raidEnemies.filter(e=>e.hp>0);
+
+ if(raidEnemies.length===0){finishRaid(true)}
+ else if(army.every(t=>!t.placed)&&army.length===0){finishRaid(false)}
+ else if(raidTime>90){finishRaid(raidEnemies.length<4)}
+}
+
+function drawBuilding(b){
+ const d=defs[b.type],x=b.x,y=b.y;
+ ctx.fillStyle="#28442d";ctx.beginPath();ctx.ellipse(x,y+d.h*.32,d.w*.55,10,0,0,Math.PI*2);ctx.fill();
+ if(b.type==="town"){
+  ctx.fillStyle="#8a5c3c";ctx.fillRect(x-35,y-22,70,45);
+  ctx.fillStyle="#d8b17a";ctx.fillRect(x-26,y-40,52,27);
+  ctx.fillStyle="#a33e3e";ctx.beginPath();ctx.moveTo(x-31,y-39);ctx.lineTo(x,y-62);ctx.lineTo(x+31,y-39);ctx.fill();
+  ctx.fillStyle="#f5d68b";ctx.fillRect(x-8,y-10,16,32);
+  ctx.fillStyle="#4a3128";ctx.fillRect(x-3,y+7,6,15);
+ }else if(b.type==="gold"){
+  ctx.fillStyle="#b9a05a";ctx.fillRect(x-20,y-10,40,26);
+  ctx.fillStyle="#e8d49b";ctx.beginPath();ctx.moveTo(x-27,y-10);ctx.lineTo(x,y-29);ctx.lineTo(x+27,y-10);ctx.fill();
+  ctx.fillStyle="#6c4e29";ctx.fillRect(x-6,y-5,12,21);
+  ctx.fillStyle="#ffe76d";ctx.beginPath();ctx.arc(x+13,y+4,6,0,Math.PI*2);ctx.fill();
+ }else if(b.type==="elixir"){
+  ctx.fillStyle="#6e2eaa";ctx.fillRect(x-20,y-11,40,27);
+  ctx.fillStyle="#e2a5ff";ctx.beginPath();ctx.moveTo(x-24,y-11);ctx.lineTo(x,y-31);ctx.lineTo(x+24,y-11);ctx.fill();
+  ctx.fillStyle="#f7d6ff";ctx.fillRect(x-6,y-5,12,21);
+  ctx.fillStyle="#d66bff";ctx.beginPath();ctx.arc(x+13,y+1,6,0,Math.PI*2);ctx.fill();
+ }else if(b.type==="camp"){
+  ctx.fillStyle="#d8b679";ctx.beginPath();ctx.moveTo(x-29,y+16);ctx.lineTo(x,y-28);ctx.lineTo(x+29,y+16);ctx.fill();
+  ctx.fillStyle="#6a4d31";ctx.beginPath();ctx.moveTo(x-14,y+15);ctx.lineTo(x,y-7);ctx.lineTo(x+14,y+15);ctx.fill();
+ }else if(b.type==="cannon"){
+  ctx.fillStyle="#758a91";ctx.fillRect(x-20,y-9,40,27);
+  ctx.fillStyle="#d6dce0";ctx.beginPath();ctx.arc(x,y-7,17,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle="#46535e";ctx.fillRect(x-4,y-28,31,11);
+  ctx.fillStyle="#17232b";ctx.beginPath();ctx.arc(x,y-7,7,0,Math.PI*2);ctx.fill();
+ }else if(b.type==="wall"){
+  ctx.fillStyle="#b5b9a5";ctx.fillRect(x-16,y-12,32,24);
+  ctx.strokeStyle="#666f69";ctx.strokeRect(x-16,y-12,32,24);
+ }else{
+  ctx.fillStyle="#a67548";ctx.fillRect(x-19,y-11,38,27);
+  ctx.fillStyle="#e6c68b";ctx.beginPath();ctx.moveTo(x-25,y-11);ctx.lineTo(x,y-30);ctx.lineTo(x+25,y-11);ctx.fill();
+ }
+ if(b.level>1){
+  ctx.fillStyle="#fff5a0";ctx.font="bold 12px Arial";ctx.textAlign="center";
+  ctx.fillText("Lv."+b.level,x,y+d.h*.55+9);ctx.textAlign="left";
+ }
+ if(selected===b){
+  ctx.strokeStyle="#fff38c";ctx.lineWidth=3;ctx.strokeRect(x-d.w/2-5,y-d.h/2-8,d.w+10,d.h+16);
+ }
+ if((b.type==="gold"||b.type==="elixir")&&b.stored>0){
+  ctx.fillStyle="#101b25";ctx.fillRect(x-25,y-d.h/2-20,50,16);
+  ctx.fillStyle="#fff";ctx.font="bold 11px Arial";ctx.textAlign="center";
+  ctx.fillText("+"+Math.floor(b.stored),x,y-d.h/2-8);ctx.textAlign="left";
+ }
+}
+
+function draw(){
+ ctx.clearRect(0,0,W,H);
+ const g=ctx.createLinearGradient(0,0,W,H);
+ g.addColorStop(0,"#75bc65");g.addColorStop(1,"#387c48");
+ ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+ // Grass tiles
+ for(let y=25;y<H;y+=42)for(let x=10;x<W;x+=48){
+  ctx.fillStyle=((x+y)/10|0)%2?"#ffffff09":"#0b35120a";
+  ctx.fillRect(x,y,43,36);
+ }
+ // Village boundary
+ ctx.strokeStyle="#e5d29b";ctx.lineWidth=5;ctx.setLineDash([12,8]);
+ ctx.strokeRect(17,45,W-34,H-60);ctx.setLineDash([]);
+ // Decorative trees
+ for(let i=0;i<18;i++){
+  const x=(i*181+60)%W,y=(i*113+58)%H;
+  if(buildings.some(b=>dist(b,{x,y})<75))continue;
+  ctx.fillStyle="#245b35";ctx.beginPath();ctx.arc(x,y,15,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle="#3d8b46";ctx.beginPath();ctx.arc(x-4,y-5,11,0,Math.PI*2);ctx.fill();
+ }
+ for(const b of buildings)drawBuilding(b);
+
+ if(raidActive){
+  // Enemy camp
+  ctx.fillStyle="#65323a";ctx.fillRect(575,55,300,490);
+  ctx.strokeStyle="#e6a3a3";ctx.lineWidth=5;ctx.strokeRect(575,55,300,490);
+  ctx.fillStyle="#ffd2a0";ctx.font="bold 18px Arial";ctx.fillText("ENEMY VILLAGE",640,80);
+  for(const e of raidEnemies){
+   ctx.fillStyle="#c84349";ctx.beginPath();ctx.arc(e.x,e.y,17,0,Math.PI*2);ctx.fill();
+   ctx.fillStyle="#fff";ctx.beginPath();ctx.arc(e.x-5,e.y-3,3,0,Math.PI*2);ctx.arc(e.x+5,e.y-3,3,0,Math.PI*2);ctx.fill();
+   ctx.fillStyle="#35161d";ctx.fillRect(e.x-19,e.y-25,38,5);
+   ctx.fillStyle="#7dff8c";ctx.fillRect(e.x-19,e.y-25,38*Math.max(0,e.hp/e.maxHp),5);
+  }
+  for(const t of army){
+   if(!t.placed||t.hp<=0)continue;
+   ctx.fillStyle=t.type==="giant"?"#ba824a":t.type==="archer"?"#5acb64":t.type==="goblin"?"#a2d849":"#dfb56a";
+   ctx.beginPath();ctx.arc(t.x,t.y,t.type==="giant"?15:10,0,Math.PI*2);ctx.fill();
+   ctx.fillStyle="#fff";ctx.font="bold 14px Arial";ctx.textAlign="center";
+   ctx.fillText(troopDefs[t.type].emoji,t.x,t.y+5);ctx.textAlign="left";
+   ctx.fillStyle="#25312a";ctx.fillRect(t.x-13,t.y-19,26,4);
+   ctx.fillStyle="#6aff83";ctx.fillRect(t.x-13,t.y-19,26*Math.max(0,t.hp/t.maxHp),4);
+  }
+  if(raidMode&&army.length){
+   ctx.fillStyle="#fff";ctx.font="bold 15px Arial";ctx.fillText("TAP TO DEPLOY TROOPS",325,28);
+  }
+ }
+}
+
+function loop(now){
+ const dt=last?Math.min((now-last)/1000,.04):0;last=now;
+ update(dt);draw();
+ if(toastTimer>0)toastTimer-=dt;
+ requestAnimationFrame(loop);
+}
+
+load();
+buildMenu();troopMenu();updateUI();
+msg(buildings.length?"Village loaded! Build, upgrade and defend your base.":"Welcome! Start with your Town Hall.");
+if(!buildings.some(b=>b.type==="town")){
+ buildings.push({id:nextId++,type:"town",x:450,y:290,level:1,stored:0,hp:1000});
+ save();
+}
+requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
